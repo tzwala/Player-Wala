@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Video Comparison Tool (Fixed for Local Files)</title>
+
+    <!-- Google Fonts & Player Libraries -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+    <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.7.9/dist/shaka-player.ui.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shaka-player@4.7.9/dist/controls.css">
+    <!-- YouTube API is loaded via JS -->
+
+    <style>
+        :root {
+            --primary-color: #367CFF; --primary-hover-color: #2662D9;
+            --font-family: 'Poppins', sans-serif;
+            --space-md: clamp(1rem, 2vw, 1.5rem); --space-lg: clamp(1.5rem, 3vw, 2rem);
+            --bg-color: #f5f7fa; --card-bg-color: #ffffff;
+            --text-color-primary: #121212; --text-color-secondary: #5a6474;
+            --border-color: #e4e8f0; --shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+        body.dark-mode {
+            --bg-color: #121212; --card-bg-color: #1e1e1e;
+            --text-color-primary: #e1e1e1; --text-color-secondary: #a0a0a0;
+            --border-color: #333; --shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        body { font-family: var(--font-family); background-color: var(--bg-color); color: var(--text-color-primary); margin: 0; padding: var(--space-md); transition: background-color 0.3s, color 0.3s; }
+        .theme-switcher { position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; align-items: center; gap: 10px; background-color: var(--card-bg-color); padding: 8px 12px; border-radius: 50px; box-shadow: var(--shadow); border: 1px solid var(--border-color); }
+        .theme-switcher .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .theme-switcher input { display: none; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 26px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(24px); }
+        #app-container { max-width: 1800px; margin: auto; }
+        .app-header { text-align: center; margin-bottom: var(--space-lg); }
+        .app-header h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 600; margin: 0; }
+        .control-bar { background-color: var(--card-bg-color); padding: var(--space-md); border-radius: 12px; box-shadow: var(--shadow); margin-bottom: var(--space-md); display: flex; gap: var(--space-md); align-items: center; flex-wrap: wrap; }
+        .url-input-group { display: flex; flex: 1 1 400px; }
+        #streamUrlInput { width: 100%; padding: 12px 15px; font-size: 1rem; border: 1px solid var(--border-color); border-radius: 8px 0 0 8px; background-color: var(--bg-color); color: var(--text-color-primary); border-right: none; }
+        #addFavoriteBtn { padding: 0 15px; background-color: #eee; border: 1px solid var(--border-color); border-radius: 0 8px 8px 0; cursor: pointer; font-size: 1.2rem; }
+        body.dark-mode #addFavoriteBtn { background-color: #333; }
+        .button-group { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; font-size: 1rem; font-weight: 500; color: #fff; background-color: var(--primary-color); border: none; border-radius: 8px; cursor: pointer; }
+        #loadFromFileBtn { background-color: #6c757d; }
+        .favorites-bar { padding: var(--space-md); display: flex; flex-wrap: wrap; gap: 10px; }
+        .favorite-tag { background-color: var(--primary-color); color: white; padding: 5px 12px; border-radius: 15px; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .delete-fav { font-weight: bold; font-size: 1rem; cursor: pointer; }
+        .player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--space-lg); }
+        .player-card { background-color: var(--card-bg-color); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
+        .player-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); }
+        .player-header h3 { margin: 0; font-size: 1.1rem; }
+        .player-body { position: relative; flex-grow: 1; display: flex; align-items: center; justify-content: center; min-height: 250px; aspect-ratio: 16/9; }
+        .player-body > * { width: 100%; height: 100%; border: none; }
+        .loading-spinner { border: 4px solid var(--border-color); border-top: 4px solid var(--primary-color); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        .hidden { display: none; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="theme-switcher">
+        <span></span>
+        <label class="switch"><input type="checkbox" id="themeToggle"><span class="slider"></span></label>
+        <span></span>
+    </div>
+
+    <div id="app-container">
+        <header class="app-header"><h1></h1></header>
+        <div class="control-bar">
+            <div class="url-input-group">
+                <input type="text" id="streamUrlInput" placeholder="Enter any Video URL or select a Favorite">
+                <button id="addFavoriteBtn" title="Add to Favorites">⭐</button>
+            </div>
+            <div class="button-group">
+                <button id="loadUrlBtn" class="btn">Load URL</button>
+                <button id="loadFromFileBtn" class="btn">Load from Computer</button>
+            </div>
+            <input type="file" id="fileInput" class="hidden" accept="video/*">
+        </div>
+        <div id="favoritesBar" class="favorites-bar"></div>
+        <div class="player-grid">
+            <div class="player-card" data-player-id="native"><div class="player-header"><h3>1. Native/Embed</h3></div><div class="player-body"></div></div>
+            <div class="player-card" data-player-id="videojs"><div class="player-header"><h3>2. Video.js</h3></div><div class="player-body"></div></div>
+            <div class="player-card" data-player-id="hlsjs"><div class="player-header"><h3>3. HLS.js</h3></div><div class="player-body"></div></div>
+            <div class="player-card" data-player-id="shaka"><div class="player-header"><h3>4. Shaka Player</h3></div><div class="player-body"></div></div>
+        </div>
+    </div>
+
+    <script>
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlInput = document.getElementById('streamUrlInput');
+            const addFavoriteBtn = document.getElementById('addFavoriteBtn');
+            const loadUrlBtn = document.getElementById('loadUrlBtn');
+            const loadFromFileBtn = document.getElementById('loadFromFileBtn');
+            const fileInput = document.getElementById('fileInput');
+            const favoritesBar = document.getElementById('favoritesBar');
+            const themeToggle = document.getElementById('themeToggle');
+
+            let playerInstances = { native: null, videojs: null, hlsjs: null, shaka: null };
+
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme === 'dark') {
+                document.body.classList.add('dark-mode');
+                themeToggle.checked = true;
+            }
+            themeToggle.addEventListener('change', () => {
+                document.body.classList.toggle('dark-mode');
+                localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+            });
+
+            const getFavorites = () => JSON.parse(localStorage.getItem('videoFavorites') || '[]');
+            const saveFavorites = (favs) => localStorage.setItem('videoFavorites', JSON.stringify(favs));
+            const renderFavorites = () => {
+                favoritesBar.innerHTML = '';
+                getFavorites().forEach(fav => {
+                    const tag = document.createElement('div');
+                    tag.className = 'favorite-tag';
+                    try { tag.textContent = new URL(fav).hostname; } catch (e) { tag.textContent = 'Invalid URL'; }
+                    tag.title = fav;
+                    tag.onclick = () => { urlInput.value = fav; loadUrlInPlayers(fav); };
+                    const delBtn = document.createElement('span');
+                    delBtn.className = 'delete-fav';
+                    delBtn.innerHTML = '×';
+                    delBtn.onclick = (e) => { e.stopPropagation(); saveFavorites(getFavorites().filter(f => f !== fav)); renderFavorites(); };
+                    tag.appendChild(delBtn);
+                    favoritesBar.appendChild(tag);
+                });
+            };
+            addFavoriteBtn.addEventListener('click', () => {
+                const url = urlInput.value.trim();
+                if (!url) return alert("Please enter a URL.");
+                try { new URL(url); } catch(e) { return alert("Please enter a valid URL."); }
+                const favorites = getFavorites();
+                if (!favorites.includes(url)) { favorites.push(url); saveFavorites(favorites); renderFavorites(); }
+            });
+
+            const detectUrlType = (url) => {
+                if (!url) return { type: 'empty' };
+                const youtubeRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})/;
+                const vimeoRegex = /(?:https?:\/\/)?(?:www\.)?vimeo\.com\/(\d+)/;
+                if (url.startsWith('blob:')) return { type: 'local' };
+                if (youtubeRegex.test(url)) return { type: 'youtube', id: url.match(youtubeRegex)[1] };
+                if (vimeoRegex.test(url)) return { type: 'vimeo', id: url.match(vimeoRegex)[1] };
+                if (url.includes('.m3u8')) return { type: 'hls' };
+                if (url.includes('.mpd')) return { type: 'dash' };
+                if (url.includes('.mp4') || url.includes('.webm')) return { type: 'mp4' };
+                return { type: 'unsupported' };
+            };
+            
+            const cleanupAndCreatePlayerElement = (playerId) => {
+                const card = document.querySelector(`.player-card[data-player-id="${playerId}"]`);
+                const body = card.querySelector('.player-body');
+                if (playerInstances[playerId]) {
+                    if (playerId === 'videojs' && playerInstances.videojs.dispose) playerInstances.videojs.dispose();
+                    else if (playerId === 'hlsjs' && playerInstances.hlsjs.destroy) playerInstances.hlsjs.destroy();
+                }
+                playerInstances[playerId] = null;
+                body.innerHTML = '';
+                return body;
+            };
+            
+            // --- FIX: The function now accepts an 'options' object ---
+            const loadUrlInPlayers = (url, options = {}) => {
+                const urlInfo = detectUrlType(url);
+                if (urlInfo.type === 'empty' || urlInfo.type === 'unsupported') {
+                    document.querySelectorAll('.player-body').forEach(body => body.innerHTML = `<span>Unsupported or Empty URL</span>`);
+                    return;
+                }
+                if (urlInfo.type === 'youtube' || urlInfo.type === 'vimeo') {
+                    const iframeSrc = urlInfo.type === 'youtube'
+                        ? `https://www.youtube.com/embed/${urlInfo.id}?autoplay=1&mute=1`
+                        : `https://player.vimeo.com/video/${urlInfo.id}?autoplay=1&muted=1`;
+                    document.querySelectorAll('.player-card').forEach(card => {
+                        const body = card.querySelector('.player-body');
+                        const iframe = document.createElement('iframe');
+                        iframe.src = iframeSrc;
+                        iframe.allow = 'autoplay; fullscreen';
+                        body.innerHTML = '';
+                        body.appendChild(iframe);
+                    });
+                    return;
+                }
+                for (const playerId in playerInstances) {
+                    const body = cleanupAndCreatePlayerElement(playerId);
+                    const videoEl = document.createElement('video');
+                    videoEl.controls = true; videoEl.autoplay = true; videoEl.muted = true; videoEl.playsInline = true;
+                    body.appendChild(videoEl);
+                    try {
+                        switch (playerId) {
+                            case 'native':
+                                videoEl.src = url;
+                                playerInstances.native = videoEl;
+                                break;
+                            case 'videojs':
+                                videoEl.className = 'video-js vjs-fluid';
+                                playerInstances.videojs = videojs(videoEl);
+                                // --- FIX: Check for local file type and pass it to src() ---
+                                if (options.fileType) {
+                                    playerInstances.videojs.src({ src: url, type: options.fileType });
+                                } else {
+                                    playerInstances.videojs.src(url);
+                                }
+                                break;
+                            case 'hlsjs':
+                                if (urlInfo.type === 'hls' && Hls.isSupported()) {
+                                    const hls = new Hls(); hls.loadSource(url); hls.attachMedia(videoEl); playerInstances.hlsjs = hls;
+                                } else videoEl.src = url;
+                                break;
+                            case 'shaka':
+                                if (shaka.Player.isBrowserSupported()) {
+                                    const shakaPlayer = new shaka.Player(videoEl);
+                                    shakaPlayer.load(url).catch(e => console.error("Shaka Error:", e));
+                                    playerInstances.shaka = shakaPlayer;
+                                } else videoEl.src = url;
+                                break;
+                        }
+                    } catch(e) { console.error(`Error for ${playerId}:`, e); body.innerHTML = '<span>Error loading</span>'; }
+                }
+            };
+            
+            loadUrlBtn.addEventListener('click', () => loadUrlInPlayers(urlInput.value.trim()));
+            urlInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') loadUrlBtn.click(); });
+            loadFromFileBtn.addEventListener('click', () => fileInput.click());
+            
+            // --- FIX: The file input listener now passes the file type ---
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const localUrl = URL.createObjectURL(file);
+                    urlInput.value = `local-file://${file.name}`;
+                    loadUrlInPlayers(localUrl, { fileType: file.type });
+                }
+            });
+
+            renderFavorites();
+        });
+    </script>
+</body>
+</html>
